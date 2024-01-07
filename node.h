@@ -32,6 +32,7 @@
 
 #include <sys/types.h>
 #include <sys/ipc.h>	/* for key_t */
+#include <sys/socket.h>
 #include <errno.h>
 
 #include <netax25/ax25io.h>
@@ -125,7 +126,7 @@ extern int system_user_count(void);
 /* in config.c */
 extern int is_hidden(const char *port);
 extern int check_perms(int what, unsigned long peer);
-extern char *read_perms(struct user *up, unsigned long peer);
+extern char *read_perms(struct user *up, const struct sockaddr *peer);
 extern int read_config(void);
 extern int get_escape(char *s);
 

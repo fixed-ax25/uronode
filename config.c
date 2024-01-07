@@ -56,9 +56,9 @@ int is_hidden(const char *port)
  * Return non-zero if peer is on "local" or loopback network.
  */
 
-static int is_local(unsigned long peer)
+static int is_local(uint32_t peer)
 {
-  return ((peer & LocalMask) == LocalNet) || ((peer & 0xff) == 127);
+  return ((peer & LocalMask) == LocalNet) || ((peer & 0xff000000u) == 0x7f000000u);
 }
 
 /*
@@ -102,7 +102,7 @@ int check_perms(int what, unsigned long peer)
  * Read permissions file and return a password if needed or "*" if not.
  * If user access is denied return NULL.
  */
-char *read_perms(struct user *up, unsigned long peer)
+char *read_perms(struct user *up, const struct sockaddr *peer)
 {
   FILE *fp;
   char line[256], *argv[32], *cp;
@@ -159,15 +159,18 @@ char *read_perms(struct user *up, unsigned long peer)
 //      if (!strcasecmp(argv[1], ""))
 //	break;
 //     continue;
-    case AF_INET:
+    case AF_INET: {
+      const struct sockaddr_in *sin4 = (const struct sockaddr_in *)&peer;
+      uint32_t peer_addr = ntohl(sin4->sin_addr.s_addr);
       if (!strcmp(argv[1], "*"))
 	break;
-      if (!strcasecmp(argv[1], "local") && is_local(peer))
+      if (!strcasecmp(argv[1], "local") && is_local(peer_addr))
 	break;
-      if (!strcasecmp(argv[1], "ampr") && is_ampr(peer))
+      if (!strcasecmp(argv[1], "ampr") && is_ampr(peer_addr))
 	break;
-      if (!strcasecmp(argv[1], "inet") && !is_local(peer) && !is_ampr(peer))
+      if (!strcasecmp(argv[1], "inet") && !is_local(peer_addr) && !is_ampr(peer_addr))
 	break;
+    }
       continue;
     case AF_UNSPEC:
       if (!strcmp(argv[1], "*"))
@@ -397,7 +400,7 @@ static int do_flexid(int argc, char **argv)
 {
   if (argc < 2 )
     return -1;
-  FlexId = ("%s ;" , strdup(argv[1]));
+  FlexId = strdup(argv[1]);
   return 0;
 }
 
@@ -405,7 +408,7 @@ static int do_roseid(int argc, char **argv)
 {
   if (argc < 2 )
     return -1;
-  RoseId = ("%s ;" , strdup(argv[1]));
+  RoseId = strdup(argv[1]);
   return 0;
 }
 
@@ -415,9 +418,9 @@ static int do_prompt(int argc, char **argv)
     if (argc < 2) {
       return -1;
       Prompt = strdup(argv[1]);
-      return 0;
     }
   }
+  return 0;
 } 
 
 static int do_passprompt(int argc, char **argv)
@@ -426,8 +429,8 @@ static int do_passprompt(int argc, char **argv)
     if (argc < 2)
       return -1;
     PassPrompt = strdup(argv[1]);
-    return 0;
   }
+  return 0;
 }
 
 static int do_nrport(int argc, char **argv)

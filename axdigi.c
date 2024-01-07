@@ -88,7 +88,7 @@ int main(int argc, char *argv[])
   int size, rt;
   unsigned char buf[4096];
   struct sockaddr sa;
-  int asize;
+  socklen_t asize;
 
 
   FILE *pidfile;
@@ -267,7 +267,7 @@ unsigned char *find_call(char *port)
 	  return callsign;
 	}
     }
-  return (char*)NULL;
+  return NULL;
 }
 
 void get_interfaces(int skt)

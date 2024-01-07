@@ -111,13 +111,14 @@ int ipc_close(void)
 {
   struct msqid_ds buf;
 	
-  if (ipc_id != -1)	/* Remove the IPC channel */
+  if (ipc_id != -1) {	/* Remove the IPC channel */
     if (msgctl(ipc_id, IPC_RMID, &buf) == -1) {
       node_log(LOGLVL_ERROR, "ipc_close: Could not remove IPC channel: %s", strerror(errno)); 
       return -1;
     } else {
       node_log(LOGLVL_ERROR, "ipc_close: Removing IPC channel for %s", User.call);
     }
+  }
   return 0;
 }
 

@@ -781,7 +781,6 @@ int do_status(int argc, char **argv)
   int upminutes, uphours, updays;
   double uptime_secs, idle_secs;
   double av[3];
-  unsigned **mem;
   struct utsname name;
   time_t t;
 #ifdef HAVE_AX25

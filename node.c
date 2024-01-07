@@ -100,16 +100,37 @@ static void quit_handler(int sig)
   node_logout("User terminated at remote");
 }
 
+static int
+uronode_init(void)
+{
+#ifdef HAVE_AX25
+  if (ax25_config_load_ports() == 0) {
+    node_log(LOGLVL_ERROR, "No AX.25 port data configured");
+    return 1;
+  }
+#endif	
+
+#ifdef HAVE_NETROM
+  nr_config_load_ports();
+#endif	
+
+#ifdef HAVE_ROSE			
+  rs_config_load_ports();
+#endif
+
+  return 0;
+}
+
 int main(int argc, char *argv[])
 {
-  union {
-    struct full_sockaddr_ax25 sax;
-#ifdef HAVE_ROSE		
-    struct sockaddr_rose      srose;
-#endif
-    struct sockaddr_in        sin;
-  } saddr;
-  int i, slen = sizeof(saddr);
+  struct sockaddr_storage saddr;  
+  int i;
+  socklen_t slen = sizeof(saddr);
+
+  if (sizeof(saddr) < sizeof(struct full_sockaddr_ax25)) {
+    printf("ouch.  saddr_storage is too small.");
+    exit(2);
+  }
 #ifdef HAVEMOTD
   char *p, buf[256], *pw;
 #else
@@ -128,89 +149,101 @@ int main(int argc, char *argv[])
   signal(SIGPIPE, quit_handler);
   signal(SIGQUIT, quit_handler);
 
-#ifdef HAVE_AX25
-  if (ax25_config_load_ports() == 0) {
-    node_log(LOGLVL_ERROR, "No AX.25 port data configured");
-    return 1;
+  if (uronode_init()) {
+    exit(1);
   }
-#endif	
-
-#ifdef HAVE_NETROM
-  nr_config_load_ports();
-#endif	
-#ifdef HAVE_ROSE			
-  rs_config_load_ports();
-#endif	
+  slen = sizeof(saddr);
   if (getpeername(STDOUT_FILENO, (struct sockaddr *)&saddr, &slen) == -1) {
     if (errno != ENOTSOCK) {
       node_log(LOGLVL_ERROR, "getpeername: %s", strerror(errno));
       return 1;
     }
     User.ul_type = AF_UNSPEC;
-  } else
-    User.ul_type = saddr.sax.fsa_ax25.sax25_family;
+  } else {
+    User.ul_type = saddr.ss_family;
+  }
   switch (User.ul_type) {
   case AF_FLEXNET:
-  case AF_AX25:
-    strcpy(User.call, ax25_ntoa(&saddr.sax.fsa_ax25.sax25_call));
-    if (getsockname(STDOUT_FILENO, (struct sockaddr *)&saddr.sax, &slen) == -1) {
+  case AF_AX25: {
+    struct full_sockaddr_ax25 *sax = (struct full_sockaddr_ax25 *)&saddr;
+    strcpy(User.call, ax25_ntoa(&(sax->fsa_ax25.sax25_call)));
+    slen = sizeof(saddr);
+    if (getsockname(STDOUT_FILENO, (struct sockaddr *)&saddr, &slen) == -1) {
       node_log(LOGLVL_ERROR, "getsockname: %s", strerror(errno));
       return 1;
     }
-    strcpy(User.ul_name, ax25_config_get_port(&saddr.sax.fsa_digipeater[0]));
+    strcpy(User.ul_name, ax25_config_get_port(&(sax->fsa_digipeater[0])));
     paclen = ax25_config_get_paclen(User.ul_name);
     p = AX25_EOL;
     break;
-  case AF_NETROM:
-    strcpy(User.call, ax25_ntoa(&saddr.sax.fsa_ax25.sax25_call));
-    strcpy(User.ul_name, ax25_ntoa(&saddr.sax.fsa_digipeater[0]));
-    if (getsockname(STDOUT_FILENO, (struct sockaddr *)&saddr.sax, &slen) == -1) {
+  }
+  case AF_NETROM: {
+    struct full_sockaddr_ax25 *sax = (struct full_sockaddr_ax25 *)&saddr;
+
+    strcpy(User.call, ax25_ntoa(&sax->fsa_ax25.sax25_call));
+    strcpy(User.ul_name, ax25_ntoa(&sax->fsa_digipeater[0]));
+
+    slen = sizeof(saddr);
+    if (getsockname(STDOUT_FILENO, (struct sockaddr *)&saddr, &slen) == -1) {
       node_log(LOGLVL_ERROR, "getsockname: %s", strerror(errno));
       return 1;
     }
-    strcpy(User.ul_port, nr_config_get_port(&saddr.sax.fsa_ax25.sax25_call));
+    strcpy(User.ul_port, nr_config_get_port(&sax->fsa_ax25.sax25_call));
     paclen = nr_config_get_paclen(User.ul_port);
     p = NETROM_EOL;
     break;
-#ifdef HAVE_ROSE				
+  }
+#ifdef HAVE_ROSE
   case AF_ROSE:
-    strcpy(User.call, ax25_ntoa(&saddr.srose.srose_call));
-    strcpy(User.ul_name, rose_ntoa(&saddr.srose.srose_addr));
+  {
+    struct sockaddr_rose *srose = (struct sockaddr_rose *)&saddr;
+    strcpy(User.call, ax25_ntoa(&srose->srose_call));
+    strcpy(User.ul_name, rose_ntoa(&srose->srose_addr));
     paclen = rs_config_get_paclen(NULL);
     p = ROSE_EOL;
     break;
+  }
 #endif		
   case AF_INET:
-  case AF_INET6:
-    strcpy(User.ul_name, inet_ntoa(saddr.sin.sin_addr));
+  {
+    struct sockaddr_in *sin4 = (struct sockaddr_in *)&saddr;
+    inet_ntop(saddr.ss_family, &sin4->sin_addr, User.ul_name, 32);
     paclen = 1024;
     p = INET_EOL;
     break;
+  }
+  case AF_INET6:
+  {
+    struct sockaddr_in6 *sin6 = (struct sockaddr_in6 *)&saddr;
+    inet_ntop(saddr.ss_family, &(sin6->sin6_addr), User.ul_name, 32);
+    paclen = 1024;
+    p = INET_EOL;
+    break;
+  }
+  default:
   case AF_UNSPEC:
     strcpy(User.ul_name, "local");
-    if ((p = get_call(getuid())) == NULL) {
+    p = get_call(getuid());
+    if (NULL == p) {
       node_log(LOGLVL_ERROR, "No uid->callsign association found", -1);
       printf("Launching: telnet localhost 3694 ...\n");
       printf("if this fails please RTFM to see how to properly configure it.\n  - 73 de N1URO\a\n"); 
       node_log(LOGLVL_ERROR, "Tool ran me from the console so I'm forcing", -1);
       node_log(LOGLVL_ERROR, "a telnet session to port 3694/tcp on them.", -1);
-      /*			axio_flush(NodeIo); */
-      if(NodeIo!=NULL)
-	axio_flush(NodeIo);
-	if (system("telnet localhost 3694") < 0 ) {                        /* VE3TOK - 18Nov2014, return value */
-           syslog(LOG_DEBUG, "Can't \"execute telnet ::1 or 127.0.0.1 3694\"");
-           return 1;
-        }
-	node_log(LOGLVL_ERROR,"Closing console telnet session.", -1);
+      if(NodeIo!=NULL) {
+	      axio_flush(NodeIo);
+      }
+      if (system("telnet localhost 3694") < 0 ) {                        /* VE3TOK - 18Nov2014, return value */
+        syslog(LOG_DEBUG, "Can't \"execute telnet ::1 or 127.0.0.1 3694\"");
+        return 1;
+      }
+      node_log(LOGLVL_ERROR,"Closing console telnet session.", -1);
       return -1;
     }
     strcpy(User.call, p);
     paclen = 1024;
     p = UNSPEC_EOL;
     break;
-  default:
-    node_log(LOGLVL_ERROR, "Unsupported address family %d", User.ul_type);
-    return 1;
   }
   NodeIo = axio_init(STDIN_FILENO, STDOUT_FILENO, paclen, p);
   if (NodeIo == NULL) {
@@ -257,7 +290,7 @@ int main(int argc, char *argv[])
     node_log(LOGLVL_LOGIN, "Invalid callsign %s @ %s", User.call, User.ul_name);
     node_logout("Invalid callsign");
   }
-  if ((pw = read_perms(&User, saddr.sin.sin_addr.s_addr)) == NULL) {
+  if ((pw = read_perms(&User, (const struct sockaddr *)&saddr)) == NULL) {
     node_msg("Sorry, I'm not allowed to talk to you.");
     axio_printf(NodeIo,"*** Password required! If you don't have a password please email\n%s for a password you wish to use.\n", Email);
     node_log(LOGLVL_LOGIN, "Login denied for %s @ %s", User.call, User.ul_name);
