@@ -73,30 +73,33 @@ int cusgets(char *buf, int buflen, ax25io *iop)
 }
 
 /*---------------------------------------------------------------------------*/
-#define _XOPEN_SOURCE
 
+/** open a pty and return the name of the pty via ptyname.
+ */
 int find_pty(char *ptyname)
 {
-  char master[80];
-  int fd;
-  int num;
-  static int lastnum = -1;
+  int ptyfd;
+  char *slavepty_name = NULL;
 
-  for(num = lastnum + 1; ; num++) {
-    if (num >= NUMPTY) num = 0;
-//    sprintf(master, "/dev/ptmx%c%x", 'p' + (num >> 4), num & 0xf); 
-	sprintf(master, "/dev/ptmx", O_RDWR);
-/*      sprintf(master, "/dev/pts/%x", num & 0xf); */
-    if ((fd = open(master, O_RDWR | O_NONBLOCK, 0600)) >= 0) {
-      sprintf(ptyname, "/dev/ptmx", 'p' + (num >> 4), num & 0xf);
-/*     sprintf(ptyname, "/dev/pts/%x", num & 0xf); */
-      lastnum = num;
-      return fd;
-    }
-    if (num == lastnum) break;
+  ptyfd = open("/dev/ptmx", O_RDWR|O_NONBLOCK, 0600);
+  if (ptyfd < 0) {
+    return -1;
   }
-
-  return -1;
+  if (!grantpt(ptyfd)) {
+    close(ptyfd);
+    return -1;
+  }
+  if (!unlockpt(ptyfd)) {
+    close(ptyfd);   
+    return -1;
+  }
+  slavepty_name = ptsname(ptyfd);
+  if (NULL == slavepty_name) {
+    close(ptyfd);
+    return -1;
+  }
+  strcpy(ptyname, slavepty_name);
+  return ptyfd;
 }
 
 /*---------------------------------------------------------------------------*/
